@@ -1,4 +1,4 @@
-/* --- iOS list view styling --- */
+/* --- Default: blur all episode thumbnails and hide descriptions --- */
 .listItem .listItemImage::before {
   content: '';
   position: absolute;
@@ -8,7 +8,7 @@
   z-index: 0;
 }
 
-/* Keep overlay buttons/icons clear */
+/* Keep overlay buttons/icons sharp */
 .listItem .listItemImageButton,
 .listItem .listItemImageButton *,
 .listItem .material-icons,
@@ -28,23 +28,31 @@
   opacity: 0;
 }
 
-/* Show watched episodes (only if Jellyfin marks them as played) */
-.listItem.played .listItemImage::before,
-.listItem[data-played="true"] .listItemImage::before {
-  backdrop-filter: none !important;
-  filter: none !important;
+/* --- iOS visual fallback: detect played checkmark icon --- */
+.listItem .playstatebutton-icon-played {
+  position: relative;
+  z-index: 3;
 }
 
-.listItem.played .listItem-overview,
-.listItem[data-played="true"] .listItem-overview,
-.listItem.played .secondary.listItemBodyText,
-.listItem[data-played="true"] .secondary.listItemBodyText {
+/* Create an unblur zone around the checkmark that clears the whole thumbnail */
+.listItem .playstatebutton-icon-played::before {
+  content: '';
+  position: absolute;
+  inset: -300% -300%;
+  background: rgba(0, 0, 0, 0);
+  backdrop-filter: none !important;
+  z-index: -1;
+}
+
+/* --- Show descriptions when played icon exists --- */
+.listItem .playstatebutton-icon-played ~ .listItemBody .listItem-overview,
+.listItem .playstatebutton-icon-played ~ .listItemBody .secondary.listItemBodyText {
   display: block !important;
   visibility: visible !important;
   opacity: 1 !important;
 }
 
-/* Hide duplicate line */
+/* Always hide the duplicate bottom line */
 .listItem .listItem-bottomoverview {
   display: none !important;
 }

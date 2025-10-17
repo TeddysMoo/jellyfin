@@ -1,0 +1,45 @@
+.listItem .listItemImage::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  backdrop-filter: blur(8px);
+  transition: backdrop-filter 0.3s ease;
+  z-index: 0;
+}
+
+.listItem .listItemImageButton,
+.listItem .listItemImageButton *,
+.listItem .material-icons,
+.listItem .emby-button {
+  position: relative;
+  z-index: 1;
+  filter: none !important;
+  backdrop-filter: none !important;
+}
+
+.listItem .listItem-overview,
+.listItem .listItem-bottomoverview,
+.listItem .secondary.listItemBodyText {
+  display: none !important;
+  visibility: hidden;
+  opacity: 0;
+}
+
+.listItem .playstatebutton-icon-played {
+  display: inline-block;
+}
+
+.listItem:has(.playstatebutton-icon-played) .listItemImage::before {
+  backdrop-filter: none !important;
+}
+
+.listItem:has(.playstatebutton-icon-played) .listItem-overview,
+.listItem:has(.playstatebutton-icon-played) .secondary.listItemBodyText {
+  display: block !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+}
+
+.listItem .listItem-bottomoverview {
+  display: none !important;
+}

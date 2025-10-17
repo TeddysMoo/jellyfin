@@ -1,3 +1,5 @@
+body { background: rgba(255,0,0,0.1) !important; }
+
 /* --- Default: blur all episode thumbnails and hide descriptions --- */
 .listItem .listItemImage::before {
   content: '';

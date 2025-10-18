@@ -35,6 +35,28 @@
       opacity: 0.8;
       transition: filter 0.3s ease, opacity 0.3s ease;
     }
+
+    /* --- Bounded blur for the Next Up card --- */
+    #itemDetailPage > div.detailPageWrapperContainer >
+    div.detailPageSecondaryContainer.padded-bottom-page >
+    div > div.nextUpSection.verticalSection.detailVerticalSection >
+    div > div > div > div.cardScalable {
+      position: relative;      /* create clipping context */
+      overflow: hidden;        /* clip the blur */
+      border-radius: 0.2em;    /* container corner radius */
+      contain: paint;          /* isolate paint area */
+    }
+
+    /* Apply the blur to the <a> inside, clipped to parent bounds */
+    #itemDetailPage > div.detailPageWrapperContainer >
+    div.detailPageSecondaryContainer.padded-bottom-page >
+    div > div.nextUpSection.verticalSection.detailVerticalSection >
+    div > div > div > div.cardScalable > a {
+      display: block;
+      filter: blur(10px);
+      border-radius: 0.2em;    /* restore lost inherited rounding */
+      transition: filter 0.3s ease;
+    }
   `;
   document.head.appendChild(style);
 
@@ -62,7 +84,6 @@
       } else {
         // --- Unwatched episode ---
         if (thumbnail) thumbnail.classList.add('blurred');
-
         bottomViews.forEach(el => {
           // Skip the element with media info
           if (el.classList.contains('listItemMediaInfo')) {

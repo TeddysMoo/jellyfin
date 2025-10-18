@@ -41,38 +41,35 @@
     div.detailPageSecondaryContainer.padded-bottom-page >
     div > div.nextUpSection.verticalSection.detailVerticalSection >
     div > div > div > div.cardScalable {
-      position: relative;      /* create clipping context */
-      overflow: hidden;        /* clip the blur */
-      border-radius: 0.2em;    /* container corner radius */
-      contain: paint;          /* isolate paint area */
+      position: relative;
+      overflow: hidden;
+      border-radius: 0.2em;
+      contain: paint;
     }
 
-    /* Apply the blur to the <a> inside, clipped to parent bounds */
     #itemDetailPage > div.detailPageWrapperContainer >
     div.detailPageSecondaryContainer.padded-bottom-page >
     div > div.nextUpSection.verticalSection.detailVerticalSection >
     div > div > div > div.cardScalable > a {
       display: block;
       filter: blur(10px);
-      border-radius: 0.2em;    /* restore lost inherited rounding */
+      border-radius: 0.2em;
       transition: filter 0.3s ease;
     }
   `;
   document.head.appendChild(style);
 
-  // --- Apply visibility & blur logic ---
+  // --- Apply watched/unwatched blur logic for episode list ---
   function applyEpisodeVisibility() {
     const episodes = document.querySelectorAll('.listItem');
-
     episodes.forEach(ep => {
       const hasIndicators = ep.querySelector('.indicators.listItemIndicators');
       const thumbnail = ep.querySelector('.listItemImage');
       const bottomViews = ep.querySelectorAll(
-      '.listItem-overview.secondary.listItemBodyText, .listItem-bottomoverview'
-    );
+        '.listItem-overview.secondary.listItemBodyText, .listItem-bottomoverview'
+      );
 
       if (hasIndicators) {
-        // --- Watched episode ---
         if (thumbnail) thumbnail.classList.remove('blurred');
         bottomViews.forEach(el => {
           el.classList.remove('blurred-text');
@@ -82,19 +79,9 @@
           el.style.marginBottom = '';
         });
       } else {
-        // --- Unwatched episode ---
         if (thumbnail) thumbnail.classList.add('blurred');
         bottomViews.forEach(el => {
-          // Skip the element with media info
-          if (el.classList.contains('listItemMediaInfo')) {
-            el.classList.remove('blurred-text');
-            el.style.filter = 'none';
-            el.style.opacity = '1';
-            el.style.visibility = 'visible';
-            return;
-          }
-
-          // Blur everything else
+          if (el.classList.contains('listItemMediaInfo')) return;
           el.classList.add('blurred-text');
           el.style.visibility = 'visible';
           el.style.opacity = '1';
@@ -105,23 +92,53 @@
     });
   }
 
-  // --- Wait for episodes to appear, then observe for updates ---
-  function waitForEpisodes() {
-    const interval = setInterval(() => {
-      const found = document.querySelectorAll('.listItem').length;
-      if (found > 0) {
-        clearInterval(interval);
-        applyEpisodeVisibility();
+  // --- Blur first landscape card only when body lacks 'withSectionTabs' ---
+  function applyLandscapeBlur() {
+    const body = document.body;
+    const shouldBlur = !body.classList.contains('withSectionTabs');
+    const cards = document.querySelectorAll('.cardImageContainer.coveredImage.cardContent');
+    let blurredOnce = false;
 
-        const observer = new MutationObserver(applyEpisodeVisibility);
-        observer.observe(document.body, { childList: true, subtree: true });
+    cards.forEach(card => {
+      const rect = card.getBoundingClientRect();
+      const aspect = rect.width / rect.height;
+
+      if (shouldBlur && !blurredOnce && aspect > 1.2) {
+        card.style.filter = 'blur(10px)';
+        card.style.borderRadius = '0.2em';
+        card.style.transition = 'filter 0.3s ease';
+        blurredOnce = true;
+      } else {
+        card.style.filter = 'none';
+        card.style.backdropFilter = 'none';
+        card.style.opacity = '1';
       }
-    }, 1000);
+    });
+  }
+
+  // --- Unified refresh for both conditions ---
+  function refreshAll() {
+    applyEpisodeVisibility();
+    applyLandscapeBlur();
+  }
+
+  // --- Observe DOM + body class changes ---
+  function watchForChanges() {
+    // Observe the DOM for new cards or episodes
+    const domObserver = new MutationObserver(refreshAll);
+    domObserver.observe(document.body, { childList: true, subtree: true });
+
+    // Observe <body> attribute/class changes (to detect navigation)
+    const classObserver = new MutationObserver(refreshAll);
+    classObserver.observe(document.body, { attributes: true, attributeFilter: ['class'] });
+
+    // Initial run
+    refreshAll();
   }
 
   if (document.readyState === 'complete' || document.readyState === 'interactive') {
-    waitForEpisodes();
+    watchForChanges();
   } else {
-    window.addEventListener('DOMContentLoaded', waitForEpisodes);
+    window.addEventListener('DOMContentLoaded', watchForChanges);
   }
 })();

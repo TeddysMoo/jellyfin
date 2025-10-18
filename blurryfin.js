@@ -68,8 +68,8 @@
       const hasIndicators = ep.querySelector('.indicators.listItemIndicators');
       const thumbnail = ep.querySelector('.listItemImage');
       const bottomViews = ep.querySelectorAll(
-        '.listItem-overview, .listItem-bottomoverview, .secondary.listItemBodyText'
-      );
+      '.listItem-overview.secondary.listItemBodyText, .listItem-bottomoverview'
+    );
 
       if (hasIndicators) {
         // --- Watched episode ---

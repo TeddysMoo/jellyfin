@@ -1,164 +1,266 @@
-(function() {
+(function () {
   'use strict';
 
-  /* === Stable CSS Blur Layers === */
+  /***********************
+   *  CONFIG
+   ***********************/
+  const BLUR_PX = 24;
+
+  // Subtle horizontal stretch for blurred thumbs
+  // Try: 1.01 → 1.015 → 1.02
+  const STRETCH_X = 1.01;
+
+  /***********************
+   *  CSS (descriptions only)
+   ***********************/
   const style = document.createElement('style');
   style.textContent = `
-    /* Contain blur properly */
-    .cardBox.cardBox-bottompadded .cardScalable {
-      position: relative;
-      overflow: hidden;
-      border-radius: 0.2em;
-      contain: paint;
-    }
-
-    /* Unwatched landscape cards: single consistent blur layer */
-    .cardBox.cardBox-bottompadded a.cardImageContainer.coveredImage.cardContent.mf-unwatched::after {
-      content: '';
-      position: absolute;
-      inset: 0;
-      border-radius: inherit;
-      backdrop-filter: blur(10px);
-      -webkit-backdrop-filter: blur(10px);
-      z-index: 1;
-      pointer-events: none;
-      opacity: 1;
-      transition: opacity 0.4s ease-out;
-    }
-
-    /* Smooth fade-in on page load */
-    body.preload-blur .mf-unwatched::after { opacity: 0; transition: none !important; }
-    body.ready-blur .mf-unwatched::after  { opacity: 1; }
-
-    /* Structural / existing listItem rules kept */
-    .listItem .listItemImage::before { content:''; position:absolute; inset:0; z-index:0; transition:backdrop-filter 0.3s ease; }
-    .listItem .listItemImageButton, .listItem .listItemImageButton *, .listItem .material-icons, .listItem .emby-button {
-      position:relative; z-index:1; filter:none!important; backdrop-filter:none!important;
-    }
-    .listItem .listItemImage.blurred::before { backdrop-filter:blur(8px); }
-    .listItem .blurred-text { filter:blur(6px); opacity:0.8; transition:filter 0.3s ease,opacity 0.3s ease; }
-
-    /* Next-Up bounded blur remains */
-    #itemDetailPage > div.detailPageWrapperContainer >
-    div.detailPageSecondaryContainer.padded-bottom-page >
-    div > div.nextUpSection.verticalSection.detailVerticalSection >
-    div > div > div > div.cardScalable { position:relative; overflow:hidden; border-radius:0.2em; contain:paint; }
-    #itemDetailPage > div.detailPageWrapperContainer >
-    div.detailPageSecondaryContainer.padded-bottom-page >
-    div > div.nextUpSection.verticalSection.detailVerticalSection >
-    div > div > div > div.cardScalable > a {
-      display:block; filter:blur(10px); border-radius:0.2em; transition:filter 0.3s ease;
+    .listItem .mf-desc-blur {
+      filter: blur(6px);
+      opacity: 0.85;
+      transition: filter 180ms ease, opacity 180ms ease;
     }
   `;
   document.head.appendChild(style);
 
-  /* === Prevent initial flash === */
-  document.body.classList.add('preload-blur');
-  requestAnimationFrame(() => {
-    setTimeout(() => {
-      document.body.classList.remove('preload-blur');
-      document.body.classList.add('ready-blur');
-    }, 500);
-  });
+  /***********************
+   *  Watched detection
+   ***********************/
+  function isWatchedEpisode(listItem) {
+    const btn = listItem.querySelector('button.emby-playstatebutton[data-played]');
+    if (btn) return btn.getAttribute('data-played') === 'true';
 
-  /* === Helper: detect watched state === */
-  function isWatched(box) {
-    const overlay = box.querySelector('.cardOverlayContainer');
-    return Boolean(
-      box.querySelector('.playedIndicator, .playstatebutton-played, .playstatebutton-icon-played') ||
-      overlay?.querySelector('.playedIndicator, .playstatebutton-played, .playstatebutton-icon-played')
-    );
+    if (listItem.querySelector('.playedIndicator, .playstatebutton-played, .playstatebutton-icon-played')) {
+      return true;
+    }
+
+    const indicators = listItem.querySelector('.indicators.listItemIndicators');
+    return Boolean(indicators);
   }
 
-  /* === Apply blur only to qualifying cards === */
-  function applyCardBoxBlur() {
-    const body = document.body;
-    if (!body.classList.contains('force-scroll') ||
-        !body.classList.contains('libraryDocument') ||
-        body.classList.contains('withSectionTabs')) return;
+  function isWatchedNextUp(cardEl) {
+    const btn = cardEl.querySelector('button.emby-playstatebutton[data-played]');
+    if (btn) return btn.getAttribute('data-played') === 'true';
 
-    const boxes = document.querySelectorAll('.cardBox.cardBox-bottompadded');
-    boxes.forEach(box => {
-      const anchor = box.querySelector('a.cardImageContainer.coveredImage.cardContent');
-      if (!anchor) return;
+    if (cardEl.querySelector('.playedIndicator, .playstatebutton-played, .playstatebutton-icon-played')) {
+      return true;
+    }
 
-      const rect = anchor.getBoundingClientRect();
-      const aspect = rect.width / rect.height;
+    return false;
+  }
 
-      // Remove previous state first
-      anchor.classList.remove('mf-unwatched');
+  /***********************
+   *  Canvas blur helpers
+   ***********************/
+  const blurCache = new Map(); // url -> dataUrl or Promise
 
-      // Only add blur if card meets all conditions
-      const shouldBlur = aspect > 1.1 && !isWatched(box);
-      if (shouldBlur) {
-        anchor.classList.add('mf-unwatched');
-      }
+  function extractBgUrl(el) {
+    const bg = (el.style.backgroundImage || getComputedStyle(el).backgroundImage || '').trim();
+    if (!bg || bg === 'none') return null;
+    const m = bg.match(/^url\((.*)\)$/i);
+    if (!m) return null;
+    return m[1].trim().replace(/^["']|["']$/g, '');
+  }
+
+  function loadImage(url) {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => resolve(img);
+      img.onerror = reject;
+      img.src = url;
     });
   }
 
-  /* === Episode & hero blur (unchanged) === */
-  function applyEpisodeVisibility() {
-    document.querySelectorAll('.listItem').forEach(ep => {
-      const hasIndicators = ep.querySelector('.indicators.listItemIndicators');
-      const thumbnail = ep.querySelector('.listItemImage');
-      const bottomViews = ep.querySelectorAll(
-        '.listItem-overview.secondary.listItemBodyText, .listItem-bottomoverview'
+  function canvasBlurToDataUrl(img, w, h, blurPx) {
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.floor(w));
+    canvas.height = Math.max(1, Math.floor(h));
+    const ctx = canvas.getContext('2d');
+
+    // Match background-size: cover
+    const iw = img.naturalWidth || img.width;
+    const ih = img.naturalHeight || img.height;
+    const scale = Math.max(canvas.width / iw, canvas.height / ih);
+
+    const dw = iw * scale;
+    const dh = ih * scale;
+    const dx = (canvas.width - dw) / 2;
+    const dy = (canvas.height - dh) / 2;
+
+    ctx.filter = `blur(${blurPx}px)`;
+    ctx.drawImage(img, dx, dy, dw, dh);
+    return canvas.toDataURL('image/jpeg', 0.85);
+  }
+
+  /***********************
+   *  Blur / restore logic
+   ***********************/
+  async function ensureBlurredBg(el) {
+    const originalUrl = extractBgUrl(el);
+    if (!originalUrl) return;
+    if (el.dataset.mfBlurred === '1') return;
+
+    if (!el.dataset.mfOrigBgSize) {
+      const cs = getComputedStyle(el);
+      el.dataset.mfOrigBgSize = cs.backgroundSize || '';
+      el.dataset.mfOrigBgPos  = cs.backgroundPosition || '';
+      el.dataset.mfOrigBgRep  = cs.backgroundRepeat || '';
+    }
+
+    const applyStretch = () => {
+      el.style.backgroundRepeat = 'no-repeat';
+      el.style.backgroundPosition = 'center center';
+      el.style.backgroundSize = `${(STRETCH_X * 100).toFixed(2)}% 100%`;
+    };
+
+    const cached = blurCache.get(originalUrl);
+
+    if (typeof cached === 'string') {
+      el.style.backgroundImage = `url("${cached}")`;
+      applyStretch();
+      el.dataset.mfBlurred = '1';
+      el.dataset.mfOriginalBg = originalUrl;
+      return;
+    }
+
+    if (cached && typeof cached.then === 'function') {
+      const dataUrl = await cached;
+      el.style.backgroundImage = `url("${dataUrl}")`;
+      applyStretch();
+      el.dataset.mfBlurred = '1';
+      el.dataset.mfOriginalBg = originalUrl;
+      return;
+    }
+
+    const p = (async () => {
+      const img = await loadImage(originalUrl);
+      const rect = el.getBoundingClientRect();
+      const w = rect.width || img.naturalWidth || 300;
+      const h = rect.height || img.naturalHeight || 300;
+      return canvasBlurToDataUrl(img, w, h, BLUR_PX);
+    })();
+
+    blurCache.set(originalUrl, p);
+
+    try {
+      const dataUrl = await p;
+      blurCache.set(originalUrl, dataUrl);
+      el.style.backgroundImage = `url("${dataUrl}")`;
+      applyStretch();
+      el.dataset.mfBlurred = '1';
+      el.dataset.mfOriginalBg = originalUrl;
+    } catch {
+      blurCache.delete(originalUrl);
+    }
+  }
+
+  function restoreOriginalBg(el) {
+    const orig = el.dataset.mfOriginalBg;
+    if (orig) el.style.backgroundImage = `url("${orig}")`;
+
+    if (el.dataset.mfOrigBgSize !== undefined) el.style.backgroundSize = el.dataset.mfOrigBgSize;
+    if (el.dataset.mfOrigBgPos  !== undefined) el.style.backgroundPosition = el.dataset.mfOrigBgPos;
+    if (el.dataset.mfOrigBgRep  !== undefined) el.style.backgroundRepeat = el.dataset.mfOrigBgRep;
+
+    el.dataset.mfBlurred = '0';
+  }
+
+  /***********************
+   *  Apply rules
+   ***********************/
+  function applyEpisodesList() {
+    const items = document.querySelectorAll(
+      '#childrenContent .listItem[data-type="Episode"], .listItem[data-type="Episode"]'
+    );
+
+    items.forEach(item => {
+      const watched = isWatchedEpisode(item);
+      const thumb = item.querySelector('.listItemImage');
+      const overviewBlocks = item.querySelectorAll(
+        '.secondary.listItem-overview.listItemBodyText, .listItem-bottomoverview.secondary'
       );
-      if (hasIndicators) {
-        thumbnail?.classList.remove('blurred');
-        bottomViews.forEach(el => el.classList.remove('blurred-text'));
-      } else {
-        thumbnail?.classList.add('blurred');
-        bottomViews.forEach(el => {
-          if (!el.classList.contains('listItemMediaInfo')) el.classList.add('blurred-text');
+
+      overviewBlocks.forEach(el => el.classList.remove('mf-desc-blur'));
+
+      if (thumb && watched) restoreOriginalBg(thumb);
+
+      if (!watched) {
+        if (thumb) {
+          if (!thumb.dataset.mfOriginalBg) {
+            const origUrl = extractBgUrl(thumb);
+            if (origUrl) thumb.dataset.mfOriginalBg = origUrl;
+          }
+          ensureBlurredBg(thumb);
+        }
+
+        overviewBlocks.forEach(el => {
+          if (!el.classList.contains('listItemMediaInfo')) {
+            el.classList.add('mf-desc-blur');
+          }
         });
       }
     });
   }
 
-  function applyLandscapeBlur() {
-    const shouldBlur = !document.body.classList.contains('withSectionTabs');
-    const cards = document.querySelectorAll('.cardImageContainer.coveredImage.cardContent');
-    let blurredOnce = false;
+  function applyNextUp() {
+    const cards = document.querySelectorAll(
+      '.nextUpSection .card[data-type="Episode"], .nextUpSection .card[data-type="Video"]'
+    );
+
     cards.forEach(card => {
-      const rect = card.getBoundingClientRect();
-      const aspect = rect.width / rect.height;
-      if (shouldBlur && !blurredOnce && aspect > 1.2) {
-        card.style.filter = 'blur(10px)';
-        card.style.borderRadius = '0.2em';
-        blurredOnce = true;
-      } else {
-        card.style.filter = 'none';
+      const watched = isWatchedNextUp(card);
+      const thumb = card.querySelector('a.cardImageContainer.cardContent');
+      if (!thumb) return;
+
+      if (watched) {
+        restoreOriginalBg(thumb);
+        return;
       }
+
+      if (!thumb.dataset.mfOriginalBg) {
+        const origUrl = extractBgUrl(thumb);
+        if (origUrl) thumb.dataset.mfOriginalBg = origUrl;
+      }
+
+      ensureBlurredBg(thumb);
     });
   }
 
-  /* === Refresh all with scroll debounce === */
-  let scrollTimeout;
-  function refreshAll() {
-    applyEpisodeVisibility();
-    applyLandscapeBlur();
-    applyCardBoxBlur();
+  function applyAll() {
+    applyEpisodesList();
+    applyNextUp();
   }
 
-  function debouncedRefresh() {
-    clearTimeout(scrollTimeout);
-    scrollTimeout = setTimeout(refreshAll, 150);
+  /***********************
+   *  Observe + debounce
+   ***********************/
+  let rafPending = false;
+  function scheduleApply() {
+    if (rafPending) return;
+    rafPending = true;
+    requestAnimationFrame(() => {
+      rafPending = false;
+      applyAll();
+    });
   }
 
-  /* === Observe DOM changes === */
-  function watchForChanges() {
-    const observer = new MutationObserver(() => requestAnimationFrame(refreshAll));
-    observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class','style'] });
-    refreshAll();
+  function watch() {
+    const obs = new MutationObserver(scheduleApply);
+    obs.observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['class', 'style', 'data-played']
+    });
 
-    // Debounce scroll repaint updates
-    window.addEventListener('scroll', debouncedRefresh, true);
+    applyAll();
+    window.addEventListener('scroll', scheduleApply, true);
   }
 
-  if (document.readyState === 'complete' || document.readyState === 'interactive') {
-    watchForChanges();
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', watch, { once: true });
   } else {
-    window.addEventListener('DOMContentLoaded', watchForChanges);
+    watch();
   }
 })();
